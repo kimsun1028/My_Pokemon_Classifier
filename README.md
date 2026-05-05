@@ -12,6 +12,9 @@
 - 이미지 크기: 대부분 120x120 ~ 200x200 pixels
 - 데이터 분할: 학습(70%), 검증(15%), 테스트(15%)
 
+## 예시 사진
+<img width="1533" height="795" alt="스크린샷 2026-05-05 235138" src="https://github.com/user-attachments/assets/d98cb026-e045-41e7-9cd0-8a48056b9740" />
+
 ## 프로젝트 구조
 ```
 My_Pokemon_Classifier/
