@@ -15,6 +15,10 @@
 ## 예시 사진
 <img width="1533" height="795" alt="스크린샷 2026-05-05 235138" src="https://github.com/user-attachments/assets/d98cb026-e045-41e7-9cd0-8a48056b9740" />
 
+## 모델별 비교
+<img width="844" height="288" alt="image" src="https://github.com/user-attachments/assets/5bd6bed3-51c5-44a9-b966-2ed50f64dd3c" />
+- epoch 늘리면 정확도 늘어남
+
 ## 프로젝트 구조
 ```
 My_Pokemon_Classifier/
