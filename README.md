@@ -1,4 +1,4 @@
-# 포켓몬 이미지 분류 프로젝트 (Pokemon Image Classifier)
+# 포켓몬 이미지 분류기 (Pokemon Image Classifier)
 
 ## 목표
 주어진 포켓몬 이미지에서 포켓몬의 이름을 맞추는 다중 분류 모델 구현
