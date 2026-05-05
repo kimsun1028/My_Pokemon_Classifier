@@ -1,4 +1,4 @@
-# 포켓몬 이미지 분류 프로젝트 (Pokemon Image Classifier)
+# 포켓몬 이미지 분류기 (Pokemon Image Classifier)
 
 딥러닝을 활용한 포켓몬 이미지 자동 분류 시스템입니다. CNN 기반의 여러 모델을 비교하고, 최고 성능 모델을 선택하여 웹 인터페이스로 제공합니다.
 
