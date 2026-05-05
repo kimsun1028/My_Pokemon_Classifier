@@ -56,21 +56,9 @@ pip install -r requirements.txt
 # data/raw/ 폴더에 이미지 저장
 ```
 
-### 3. 모델 학습
-```bash
-python src/train.py --model alexnet --epochs 1 --batch_size 32
-python src/train.py --model vggnet --epochs 1 --batch_size 32
-python src/train.py --model googlenet --epochs 1 --batch_size 32
-python src/train.py --model resnet --epochs 1 --batch_size 32
-```
+### 3. 모델 학습및 평가
+ - src/train.py 실행
 
-### 4. 모델 평가
-```bash
-python src/evaluate.py --model alexnet
-python src/evaluate.py --model vggnet
-python src/evaluate.py --model googlenet
-python src/evaluate.py --model resnet
-```
 
 ### 5. Streamlit 데모 실행
 ```bash
@@ -85,16 +73,6 @@ streamlit run app/streamlit_demo.py
 - **GoogleNet (Inception)**: 다중 스케일 특징 추출
 - **ResNet50**: 잔차 연결을 이용한 깊은 신경망
 
-### 성능 지표
-
-| 모델 | 학습 정확도 | 검증 정확도 | 테스트 정확도 | 학습시간 |
-|------|----------|----------|----------|---------|
-| AlexNet | TBD | TBD | TBD | ~5분 |
-| VGGNet | TBD | TBD | TBD | ~15분 |
-| GoogleNet | TBD | TBD | TBD | ~10분 |
-| ResNet50 | TBD | TBD | TBD | ~8분 |
-
-*성능 지표는 학습 후 업데이트됩니다*
 
 ## 학습 곡선 및 분석
 
@@ -103,14 +81,13 @@ streamlit run app/streamlit_demo.py
 - **정확도 곡선**: 에포크별 학습 및 검증 정확도 추이
 - **손실값 곡선**: 에포크별 학습 및 검증 손실값 추이
 
-이들 자료는 `notebooks/experiment_results.ipynb`에서 확인할 수 있습니다. 각 모델의 학습 히스토리는 `results/` 폴더의 JSON 파일에서 로드됩니다.
+이들 자료는 result의 png 사진으로 준비됩니다.
 
 ## 주의사항
 
 - ⚠️ **데이터셋 다운로드**: Kaggle에서 별도로 다운로드하여 `data/raw/` 폴더에 저장해야 합니다
 - ⚠️ **GPU 권장**: GPU 사용 시 학습 시간이 대폭 단축됩니다 (CUDA 11.8 이상)
-- ⚠️ **메모리 요구량**: VGGNet 모델은 GPU 메모리 8GB 이상 권장
-- ⚠️ **첫 실행**: 첫 모델 학습 시 모델 가중치 다운로드로 시간이 소요될 수 있습니다
+
 
 ## 참고 자료
 
