@@ -32,26 +32,6 @@ My_Pokemon_Classifier/
 └── results/              # 학습 결과 및 모델
 ```
 
-## 필수 요구사항
-
-### 1. 필수 기능 (20점)
-- ✅ 4개 이상의 서로 다른 분류기 구현
-  - AlexNet (Pretrained weights 사용)
-  - VGGNet (Fine-tuning)
-  - GoogleNet (Pretrained 활용)
-  - ResNet50 (Pretrained weights 사용)
-- ✅ 각 모델별 성능 비교 (Test Recall, Test Precision, F1-Score, Accuracy 등)
-- ✅ 성능 지표 및 설정 기록
-
-### 2. 실험 결과 문서화 (5점)
-- ✅ README.md에 성능 결과 기록
-- ✅ 학습 곡선 그래프 포함
-- ✅ 각 모델의 예제 결과
-
-### 3. 데모 GUI 추가 (5점)
-- ✅ Streamlit 사용하여 웹 인터페이스 구축
-- ✅ 테스트 이미지 업로드 기능
-- ✅ 실시간 예측 결과 표시
 
 ## 설치 및 실행
 
@@ -74,10 +54,10 @@ pip install -r requirements.txt
 
 ### 3. 모델 학습
 ```bash
-python src/train.py --model alexnet --epochs 50 --batch_size 32
-python src/train.py --model vggnet --epochs 50 --batch_size 32
-python src/train.py --model googlenet --epochs 50 --batch_size 32
-python src/train.py --model resnet --epochs 50 --batch_size 32
+python src/train.py --model alexnet --epochs 1 --batch_size 32
+python src/train.py --model vggnet --epochs 1 --batch_size 32
+python src/train.py --model googlenet --epochs 1 --batch_size 32
+python src/train.py --model resnet --epochs 1 --batch_size 32
 ```
 
 ### 4. 모델 평가
@@ -121,6 +101,3 @@ streamlit run app/streamlit_demo.py
 - [Timm Models](https://github.com/rwightman/pytorch-image-models)
 - [Streamlit Documentation](https://docs.streamlit.io/)
 
-## 라이선스
-
-이 프로젝트는 교육 목적으로 작성되었습니다.

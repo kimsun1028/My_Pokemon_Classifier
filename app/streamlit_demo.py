@@ -1,250 +1,573 @@
-"""Streamlit web interface for Pokemon classifier demo"""
+"""Streamlit web demo for the Pokemon classifier project."""
 
-import os
+
+
+from __future__ import annotations
+
+
+
 import sys
-import torch
-import numpy as np
-from PIL import Image
-import streamlit as st
+
 from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from models import ResNetClassifier, AlexNetClassifier, VGGNetClassifier, GoogleNetClassifier
+
+import matplotlib.pyplot as plt
+
+import streamlit as st
+
+import torch
+
+from PIL import Image
+
+
+
+# Make the src package importable when running from the app directory.
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+SRC_ROOT = PROJECT_ROOT / "src"
+
+if str(SRC_ROOT) not in sys.path:
+
+    sys.path.insert(0, str(SRC_ROOT))
+
+
+
 from data_loader import get_data_transforms
 
-# Device configuration
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+from models import AlexNetClassifier, GoogleNetClassifier, ResNetClassifier, VGGNetClassifier
 
-# Page configuration
+
+
 st.set_page_config(
+
     page_title="Pokemon Classifier Demo",
+
     page_icon="🔍",
+
     layout="wide",
-    initial_sidebar_state="expanded"
+
+    initial_sidebar_state="expanded",
+
 )
 
-# CSS styling
-st.markdown("""
+
+
+st.markdown(
+
+    """
+
     <style>
+
     .main {
-        padding-top: 0rem;
+
+        background: linear-gradient(180deg, #f7f8fc 0%, #ffffff 100%);
+
     }
-    .title {
-        text-align: center;
-        color: #FF0000;
-        font-weight: bold;
+
+    .hero {
+
+        padding: 1.2rem 1.4rem;
+
+        border-radius: 18px;
+
+        background: linear-gradient(135deg, #14213d 0%, #1d3557 52%, #457b9d 100%);
+
+        color: white;
+
+        box-shadow: 0 12px 30px rgba(20, 33, 61, 0.16);
+
     }
-    .subtitle {
-        text-align: center;
-        color: #333;
+
+    .hero h1 {
+
+        margin: 0;
+
+        font-size: 2rem;
+
+        line-height: 1.1;
+
     }
+
+    .hero p {
+
+        margin: 0.55rem 0 0;
+
+        opacity: 0.92;
+
+        font-size: 1rem;
+
+    }
+
+    .card {
+
+        background: white;
+
+        border: 1px solid rgba(20, 33, 61, 0.08);
+
+        border-radius: 16px;
+
+        padding: 1rem 1.1rem;
+
+        box-shadow: 0 8px 24px rgba(20, 33, 61, 0.05);
+
+    }
+
+    .muted {
+
+        color: #52616b;
+
+        font-size: 0.95rem;
+
+    }
+
     </style>
-    """, unsafe_allow_html=True)
+
+    """,
+
+    unsafe_allow_html=True,
+
+)
 
 
-@st.cache_resource
-def load_model(model_name, num_classes=150):
-    """Load model from checkpoint"""
-    try:
-        if model_name == 'AlexNet':
-            model = AlexNetClassifier(num_classes=num_classes, pretrained=False)
-        elif model_name == 'VGGNet':
-            model = VGGNetClassifier(num_classes=num_classes, model_name='vgg16', pretrained=False)
-        elif model_name == 'GoogleNet':
-            model = GoogleNetClassifier(num_classes=num_classes, pretrained=False)
-        elif model_name == 'ResNet':
-            model = ResNetClassifier(num_classes=num_classes, pretrained=False)
-        else:
-            return None
-        
-        # Load checkpoint
-        checkpoint_path = f'results/{model_name.lower()}_best.pth'
-        if os.path.exists(checkpoint_path):
-            model.load_state_dict(torch.load(checkpoint_path, map_location=DEVICE))
-            model.to(DEVICE)
-            model.eval()
-            return model
-        else:
-            st.warning(f"Checkpoint not found: {checkpoint_path}")
-            return None
-    except Exception as e:
-        st.error(f"Error loading model: {str(e)}")
-        return None
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+RESULTS_DIR = Path("results")
+
+DATA_ROOT = Path("data/raw")
 
 
-@st.cache_data
-def load_class_names():
-    """Load class names"""
-    data_root = Path('data/raw/PokemonData')
-    if not data_root.exists():
-        data_root = Path('data/raw')
 
-    class_names = [path.name for path in sorted(data_root.iterdir()) if path.is_dir()]
+MODEL_OPTIONS = {
+
+    "ResNet": {
+
+        "factory": ResNetClassifier,
+
+        "checkpoint": RESULTS_DIR / "resnet_best.pth",
+
+        "description": "ResNet50 backbone",
+
+        "default": True,
+
+    },
+
+    "AlexNet": {
+
+        "factory": AlexNetClassifier,
+
+        "checkpoint": RESULTS_DIR / "alexnet_best.pth",
+
+        "description": "AlexNet backbone",
+
+    },
+
+    "VGGNet": {
+
+        "factory": VGGNetClassifier,
+
+        "checkpoint": RESULTS_DIR / "vggnet_best.pth",
+
+        "description": "VGG16 backbone",
+
+    },
+
+    "GoogleNet": {
+
+        "factory": GoogleNetClassifier,
+
+        "checkpoint": RESULTS_DIR / "googlenet_best.pth",
+
+        "description": "GoogleNet backbone",
+
+    },
+
+}
+
+
+
+
+
+def _class_names_from_disk() -> list[str]:
+
+    pokemon_root = DATA_ROOT / "PokemonData"
+
+    if pokemon_root.exists():
+
+        search_root = pokemon_root
+
+    else:
+
+        search_root = DATA_ROOT
+
+
+
+    if not search_root.exists():
+
+        return []
+
+
+
+    return [item.name for item in sorted(search_root.iterdir()) if item.is_dir()]
+
+
+
+
+
+@st.cache_data(show_spinner=False)
+
+def load_class_names() -> list[str]:
+
+    class_names = _class_names_from_disk()
+
     if class_names:
+
         return class_names
 
-    return [f"Pokemon_{i}" for i in range(150)]
+    return [f"Pokemon_{index}" for index in range(150)]
 
 
-def predict_pokemon(image, model, class_names, transforms):
-    """Predict Pokemon from image"""
-    try:
-        # Preprocess image
-        image_tensor = transforms(image).unsqueeze(0).to(DEVICE)
-        
-        # Predict
-        with torch.no_grad():
-            outputs = model(image_tensor)
-            probabilities = torch.nn.functional.softmax(outputs, dim=1)
-            top_prob, top_idx = torch.topk(probabilities, 5)
-        
-        # Get results
-        predictions = []
-        for i in range(5):
-            idx = top_idx[0][i].item()
-            prob = top_prob[0][i].item()
-            predictions.append({
-                'rank': i + 1,
-                'name': class_names[idx] if idx < len(class_names) else f"Unknown_{idx}",
-                'probability': prob
-            })
-        
-        return predictions
-    except Exception as e:
-        st.error(f"Error during prediction: {str(e)}")
-        return None
+
+
+
+@st.cache_resource(show_spinner=False)
+
+def load_model(model_name: str, num_classes: int):
+
+    model_info = MODEL_OPTIONS[model_name]
+
+    factory = model_info["factory"]
+
+
+
+    if model_name == "VGGNet":
+
+        model = factory(num_classes=num_classes, model_name="vgg16", pretrained=False)
+
+    else:
+
+        model = factory(num_classes=num_classes, pretrained=False)
+
+
+
+    checkpoint_path = model_info["checkpoint"]
+
+    loaded_from = None
+
+
+
+    if checkpoint_path.exists():
+
+        try:
+
+            state_dict = torch.load(checkpoint_path, map_location=DEVICE)
+
+            model.load_state_dict(state_dict, strict=True)
+
+            loaded_from = str(checkpoint_path)
+
+        except Exception:
+
+            loaded_from = None
+
+
+
+    model.to(DEVICE)
+
+    model.eval()
+
+    return model, loaded_from
+
+
+
+
+
+@st.cache_resource(show_spinner=False)
+
+def get_inference_transform():
+
+    return get_data_transforms(augment=False)["val"]
+
+
+
+
+
+def predict_topk(image: Image.Image, model, class_names: list[str], top_k: int = 5):
+
+    transform = get_inference_transform()
+
+    image_tensor = transform(image).unsqueeze(0).to(DEVICE)
+
+
+
+    with torch.no_grad():
+
+        logits = model(image_tensor)
+
+        probabilities = torch.softmax(logits, dim=1)
+
+        top_probabilities, top_indices = torch.topk(probabilities, k=min(top_k, probabilities.shape[1]))
+
+
+
+    predictions = []
+
+    for rank, (probability, index) in enumerate(zip(top_probabilities[0], top_indices[0]), start=1):
+
+        class_index = index.item()
+
+        class_name = class_names[class_index] if class_index < len(class_names) else f"Unknown_{class_index}"
+
+        predictions.append(
+
+            {
+
+                "rank": rank,
+
+                "class_name": class_name,
+
+                "probability": float(probability.item()),
+
+            }
+
+        )
+
+
+
+    return predictions
+
+
+
+
+
+def render_metrics(predictions):
+
+    if not predictions:
+
+        return
+
+
+
+    top_prediction = predictions[0]
+
+    metric_columns = st.columns(3)
+
+    metric_columns[0].metric("Top Prediction", top_prediction["class_name"])
+
+    metric_columns[1].metric("Confidence", f"{top_prediction['probability'] * 100:.2f}%")
+
+    metric_columns[2].metric("Predictions", f"Top {len(predictions)}")
+
+
+
+
+
+def render_probability_chart(predictions):
+
+    if not predictions:
+
+        return
+
+
+
+    names = [item["class_name"] for item in predictions]
+
+    probabilities = [item["probability"] for item in predictions]
+
+
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    bars = ax.barh(names, probabilities, color="#457b9d")
+
+    ax.set_xlim(0, 1)
+
+    ax.set_xlabel("Probability")
+
+    ax.set_title("Top Predictions")
+
+    ax.invert_yaxis()
+
+
+
+    for bar, probability in zip(bars, probabilities):
+
+        ax.text(probability + 0.01, bar.get_y() + bar.get_height() / 2, f"{probability * 100:.2f}%", va="center")
+
+
+
+    st.pyplot(fig, clear_figure=True)
+
+
+
 
 
 def main():
-    """Main Streamlit app"""
-    
-    # Header
-    st.markdown("<h1 class='title'>🔴 Poké Classifier 🔵</h1>", unsafe_allow_html=True)
-    st.markdown("<p class='subtitle'>AI-powered Pokemon Image Classification</p>", unsafe_allow_html=True)
-    st.markdown("---")
-    
-    # Sidebar configuration
-    st.sidebar.header("⚙️ Configuration")
-    model_choice = st.sidebar.selectbox(
-        "Select Model",
-        ['AlexNet', 'VGGNet', 'GoogleNet', 'ResNet'],
-        help="Choose which model to use for prediction"
-    )
-    
-    # Load model
-    st.sidebar.info(f"Loading {model_choice}...")
-    model = load_model(model_choice)
-    
-    if model is None:
-        st.error("❌ Failed to load model. Make sure the checkpoint exists.")
-        return
-    
-    st.sidebar.success(f"✅ {model_choice} loaded successfully!")
-    
-    # Load class names and transforms
+
     class_names = load_class_names()
-    transforms = get_data_transforms()['val']
-    
-    # Image input
-    st.header("📸 Upload Pokemon Image")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        uploaded_file = st.file_uploader(
-            "Choose an image file",
-            type=['jpg', 'jpeg', 'png', 'gif', 'bmp'],
-            help="Upload a Pokemon image"
-        )
-    
-    with col2:
-        use_example = st.checkbox("Use example image")
-    
-    image_to_predict = None
-    
-    if uploaded_file is not None:
-        image_to_predict = Image.open(uploaded_file).convert('RGB')
-    elif use_example:
-        # Create a sample image if no file uploaded
-        st.info("Please upload an image or select example mode")
-    
-    # Prediction
-    if image_to_predict is not None:
-        st.markdown("---")
-        
-        # Display image
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Input Image")
-            st.image(image_to_predict, use_column_width=True)
-        
-        # Make prediction
-        with col2:
-            st.subheader("🎯 Prediction Results")
-            
-            with st.spinner("Analyzing image..."):
-                predictions = predict_pokemon(image_to_predict, model, class_names, transforms)
-            
-            if predictions:
-                # Top prediction
-                top_pred = predictions[0]
-                st.success(f"**Top Prediction:** {top_pred['name']}")
-                st.metric("Confidence", f"{top_pred['probability']*100:.2f}%")
-                
-                # Top 5 predictions
-                st.subheader("Top 5 Predictions")
-                for pred in predictions:
-                    st.write(
-                        f"{pred['rank']}. **{pred['name']}** - "
-                        f"{pred['probability']*100:.2f}%"
-                    )
-                
-                # Visualization
-                st.subheader("Confidence Distribution")
-                names = [p['name'] for p in predictions]
-                probs = [p['probability'] for p in predictions]
-                
-                import matplotlib.pyplot as plt
-                fig, ax = plt.subplots(figsize=(10, 6))
-                bars = ax.barh(names, probs, color=['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8'])
-                ax.set_xlabel('Probability')
-                ax.set_title('Top 5 Pokemon Predictions')
-                ax.set_xlim(0, 1)
-                
-                # Add percentage labels
-                for i, (bar, prob) in enumerate(zip(bars, probs)):
-                    ax.text(prob, i, f' {prob*100:.2f}%', va='center')
-                
-                st.pyplot(fig)
-    
-    # Info section
-    st.markdown("---")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.info("**Model:** " + model_choice)
-    
-    with col2:
-        st.info(f"**Classes:** 150 Pokemon")
-    
-    with col3:
-        st.info("**Framework:** PyTorch")
-    
-    # Footer
-    st.markdown("---")
+
+    num_classes = len(class_names)
+
+
+
     st.markdown(
+
         """
-        <div style='text-align: center; color: gray;'>
-        <p>🎮 Pokemon Classifier v1.0 | Created for educational purposes</p>
+
+        <div class="hero">
+
+            <h1>Pokemon Classifier Demo</h1>
+
+            <p>Upload a Pokemon image, choose a backbone, and view the top predictions.</p>
+
         </div>
+
         """,
-        unsafe_allow_html=True
+
+        unsafe_allow_html=True,
+
     )
 
 
-if __name__ == '__main__':
+
+    st.write("")
+
+
+
+    st.sidebar.markdown("### Controls")
+
+    model_name = st.sidebar.selectbox("Model", list(MODEL_OPTIONS.keys()), index=0)
+
+    st.sidebar.caption(MODEL_OPTIONS[model_name]["description"])
+
+
+
+    try:
+
+        model, loaded_from = load_model(model_name, num_classes)
+
+        model_error = None
+
+    except Exception as error:
+
+        model = None
+
+        loaded_from = None
+
+        model_error = error
+
+
+
+    st.sidebar.markdown("---")
+
+    st.sidebar.markdown("### Status")
+
+    st.sidebar.write(f"Device: {DEVICE}")
+
+    st.sidebar.write(f"Classes: {num_classes}")
+
+    if model_error is not None:
+
+        st.sidebar.error(f"Model load failed: {model_error}")
+
+    elif loaded_from:
+
+        st.sidebar.success(f"Loaded checkpoint: {loaded_from}")
+
+    else:
+
+        st.sidebar.warning("Checkpoint not found. Using initialized weights.")
+
+
+
+    left_column, right_column = st.columns([1.1, 0.9], gap="large")
+
+
+
+    with left_column:
+
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+
+        st.subheader("1. Upload Image")
+
+        uploaded_file = st.file_uploader("Choose a Pokemon image", type=["jpg", "jpeg", "png", "bmp", "gif"])
+
+        st.caption("The demo uses the validation transform from the training pipeline.")
+
+
+
+        if uploaded_file is not None:
+
+            image = Image.open(uploaded_file).convert("RGB")
+
+            st.image(image, use_container_width=True, caption="Uploaded image")
+
+        else:
+
+            image = None
+
+            st.info("Upload an image to run inference.")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+
+    with right_column:
+
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+
+        st.subheader("2. Prediction")
+
+
+
+        if model_error is not None:
+
+            st.error("Model could not be loaded. Check the checkpoint file and model definition.")
+
+        elif image is not None and model is not None:
+
+            predictions = predict_topk(image, model, class_names, top_k=5)
+
+            render_metrics(predictions)
+
+            st.write("")
+
+            render_probability_chart(predictions)
+
+
+
+            st.markdown("#### Ranked Results")
+
+            for item in predictions:
+
+                st.write(f"{item['rank']}. {item['class_name']} - {item['probability'] * 100:.2f}%")
+
+        else:
+
+            st.write("No image uploaded yet.")
+
+            st.caption("Once you upload an image, the top-5 predictions will appear here.")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+
+    st.write("")
+
+    footer_left, footer_mid, footer_right = st.columns(3)
+
+    footer_left.info(f"Model: {model_name}")
+
+    footer_mid.info(f"Framework: PyTorch")
+
+    footer_right.info(f"Checkpoint: {'Yes' if loaded_from else 'No'}")
+
+
+
+
+
+if __name__ == "__main__":
+
     main()

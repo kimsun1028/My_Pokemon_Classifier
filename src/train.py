@@ -1,264 +1,250 @@
-"""Training script for Pokemon classifier models"""
+"""Streamlit web interface for Pokemon classifier demo"""
 
 import os
-import json
-import argparse
-from pathlib import Path
-import numpy as np
-from tqdm import tqdm
-import warnings
-
+import sys
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+import numpy as np
+from PIL import Image
+import streamlit as st
+from pathlib import Path
 
-from data_loader import create_dataloaders
+# Add src to path
+sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+
 from models import ResNetClassifier, AlexNetClassifier, VGGNetClassifier, GoogleNetClassifier
+from data_loader import get_data_transforms
 
-warnings.filterwarnings('ignore')
+# Device configuration
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# Page configuration
+st.set_page_config(
+    page_title="Pokemon Classifier Demo",
+    page_icon="🔍",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# CSS styling
+st.markdown("""
+    <style>
+    .main {
+        padding-top: 0rem;
+    }
+    .title {
+        text-align: center;
+        color: #FF0000;
+        font-weight: bold;
+    }
+    .subtitle {
+        text-align: center;
+        color: #333;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 
-def resolve_device(device_choice):
-    """Resolve the requested device."""
-    if device_choice == 'auto':
-        return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    if device_choice == 'gpu':
-        if torch.cuda.is_available():
-            return torch.device('cuda')
-        print('GPU requested, but CUDA is not available. Falling back to CPU.')
-        return torch.device('cpu')
-    return torch.device('cpu')
-
-
-class Trainer:
-    """Model Trainer class"""
-    
-    def __init__(self, model, model_name, num_classes, device, learning_rate=1e-3, weight_decay=1e-5):
-        """Initialize trainer"""
-        self.device = device
-        self.model = model.to(self.device)
-        self.model_name = model_name
-        self.num_classes = num_classes
-        self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = optim.Adam(
-            self.model.parameters(),
-            lr=learning_rate,
-            weight_decay=weight_decay
-        )
-        self.scheduler = ReduceLROnPlateau(
-            self.optimizer,
-            mode='min',
-            factor=0.5,
-            patience=3,
-            verbose=True
-        )
-        self.train_losses = []
-        self.val_losses = []
-        self.train_accs = []
-        self.val_accs = []
-    
-    def train_epoch(self, train_loader):
-        """Train for one epoch"""
-        self.model.train()
-        total_loss = 0.0
-        correct = 0
-        total = 0
+@st.cache_resource
+def load_model(model_name, num_classes=150):
+    """Load model from checkpoint"""
+    try:
+        if model_name == 'AlexNet':
+            model = AlexNetClassifier(num_classes=num_classes, pretrained=False)
+        elif model_name == 'VGGNet':
+            model = VGGNetClassifier(num_classes=num_classes, model_name='vgg16', pretrained=False)
+        elif model_name == 'GoogleNet':
+            model = GoogleNetClassifier(num_classes=num_classes, pretrained=False)
+        elif model_name == 'ResNet':
+            model = ResNetClassifier(num_classes=num_classes, pretrained=False)
+        else:
+            return None
         
-        progress_bar = tqdm(train_loader, desc='Training', leave=False, dynamic_ncols=True)
-        for images, labels in progress_bar:
-            images = images.to(self.device, non_blocking=self.device.type == 'cuda')
-            labels = labels.to(self.device, non_blocking=self.device.type == 'cuda')
-            
-            # Forward pass
-            outputs = self.model(images)
-            loss = self.criterion(outputs, labels)
-            
-            # Backward and optimize
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-            
-            # Statistics
-            total_loss += loss.item()
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-            
-            progress_bar.set_postfix({'loss': loss.item(), 'acc': correct/total})
+        # Load checkpoint
+        checkpoint_path = f'results/{model_name.lower()}_best.pth'
+        if os.path.exists(checkpoint_path):
+            model.load_state_dict(torch.load(checkpoint_path, map_location=DEVICE))
+            model.to(DEVICE)
+            model.eval()
+            return model
+        else:
+            st.warning(f"Checkpoint not found: {checkpoint_path}")
+            return None
+    except Exception as e:
+        st.error(f"Error loading model: {str(e)}")
+        return None
+
+
+@st.cache_data
+def load_class_names():
+    """Load class names"""
+    data_root = Path('data/raw/PokemonData')
+    if not data_root.exists():
+        data_root = Path('data/raw')
+
+    class_names = [path.name for path in sorted(data_root.iterdir()) if path.is_dir()]
+    if class_names:
+        return class_names
+
+    return [f"Pokemon_{i}" for i in range(150)]
+
+
+def predict_pokemon(image, model, class_names, transforms):
+    """Predict Pokemon from image"""
+    try:
+        # Preprocess image
+        image_tensor = transforms(image).unsqueeze(0).to(DEVICE)
         
-        epoch_loss = total_loss / len(train_loader)
-        epoch_acc = correct / total
-        self.train_losses.append(epoch_loss)
-        self.train_accs.append(epoch_acc)
-        
-        return epoch_loss, epoch_acc
-    
-    def validate(self, val_loader):
-        """Validate model"""
-        self.model.eval()
-        total_loss = 0.0
-        correct = 0
-        total = 0
-        
+        # Predict
         with torch.no_grad():
-            progress_bar = tqdm(val_loader, desc='Validating', leave=False, dynamic_ncols=True)
-            for images, labels in progress_bar:
-                images = images.to(self.device, non_blocking=self.device.type == 'cuda')
-                labels = labels.to(self.device, non_blocking=self.device.type == 'cuda')
-                
-                # Forward pass
-                outputs = self.model(images)
-                loss = self.criterion(outputs, labels)
-                
-                # Statistics
-                total_loss += loss.item()
-                _, predicted = torch.max(outputs.data, 1)
-                total += labels.size(0)
-                correct += (predicted == labels).sum().item()
+            outputs = model(image_tensor)
+            probabilities = torch.nn.functional.softmax(outputs, dim=1)
+            top_prob, top_idx = torch.topk(probabilities, 5)
         
-        epoch_loss = total_loss / len(val_loader)
-        epoch_acc = correct / total
-        self.val_losses.append(epoch_loss)
-        self.val_accs.append(epoch_acc)
-        
-        return epoch_loss, epoch_acc
-    
-    def train(self, train_loader, val_loader, epochs=50):
-        """Train model for specified epochs"""
-        best_val_loss = float('inf')
-        patience = 10
-        patience_counter = 0
-        
-        print(f"\nStarting training for {self.model_name}...")
-        overall_bar = tqdm(total=epochs, desc=f'Training {self.model_name}', dynamic_ncols=True)
-        
-        for epoch in range(epochs):
-            print(f"\nEpoch {epoch+1}/{epochs}")
-            
-            # Train
-            train_loss, train_acc = self.train_epoch(train_loader)
-            print(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}")
-            
-            # Validate
-            val_loss, val_acc = self.validate(val_loader)
-            print(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
-            
-            # Learning rate scheduling
-            self.scheduler.step(val_loss)
-            overall_bar.update(1)
-            overall_bar.set_postfix({
-                'epoch': f'{epoch+1}/{epochs}',
-                'train_loss': f'{train_loss:.4f}',
-                'val_loss': f'{val_loss:.4f}',
-                'val_acc': f'{val_acc:.4f}'
+        # Get results
+        predictions = []
+        for i in range(5):
+            idx = top_idx[0][i].item()
+            prob = top_prob[0][i].item()
+            predictions.append({
+                'rank': i + 1,
+                'name': class_names[idx] if idx < len(class_names) else f"Unknown_{idx}",
+                'probability': prob
             })
+        
+        return predictions
+    except Exception as e:
+        st.error(f"Error during prediction: {str(e)}")
+        return None
+
+
+def main():
+    """Main Streamlit app"""
+    
+    # Header
+    st.markdown("<h1 class='title'>🔴 Poké Classifier 🔵</h1>", unsafe_allow_html=True)
+    st.markdown("<p class='subtitle'>AI-powered Pokemon Image Classification</p>", unsafe_allow_html=True)
+    st.markdown("---")
+    
+    # Sidebar configuration
+    st.sidebar.header("⚙️ Configuration")
+    model_choice = st.sidebar.selectbox(
+        "Select Model",
+        ['AlexNet', 'VGGNet', 'GoogleNet', 'ResNet'],
+        help="Choose which model to use for prediction"
+    )
+    
+    # Load model
+    st.sidebar.info(f"Loading {model_choice}...")
+    model = load_model(model_choice)
+    
+    if model is None:
+        st.error("❌ Failed to load model. Make sure the checkpoint exists.")
+        return
+    
+    st.sidebar.success(f"✅ {model_choice} loaded successfully!")
+    
+    # Load class names and transforms
+    class_names = load_class_names()
+    transforms = get_data_transforms()['val']
+    
+    # Image input
+    st.header("📸 Upload Pokemon Image")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        uploaded_file = st.file_uploader(
+            "Choose an image file",
+            type=['jpg', 'jpeg', 'png', 'gif', 'bmp'],
+            help="Upload a Pokemon image"
+        )
+    
+    with col2:
+        use_example = st.checkbox("Use example image")
+    
+    image_to_predict = None
+    
+    if uploaded_file is not None:
+        image_to_predict = Image.open(uploaded_file).convert('RGB')
+    elif use_example:
+        # Create a sample image if no file uploaded
+        st.info("Please upload an image or select example mode")
+    
+    # Prediction
+    if image_to_predict is not None:
+        st.markdown("---")
+        
+        # Display image
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("Input Image")
+            st.image(image_to_predict, use_column_width=True)
+        
+        # Make prediction
+        with col2:
+            st.subheader("🎯 Prediction Results")
             
-            # Early stopping
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                patience_counter = 0
-                # Save best model
-                self.save_checkpoint(f'results/{self.model_name}_best.pth')
-            else:
-                patience_counter += 1
-                if patience_counter >= patience:
-                    print(f"Early stopping at epoch {epoch+1}")
-                    break
-
-        overall_bar.close()
-        print(f"Training completed for {self.model_name}")
+            with st.spinner("Analyzing image..."):
+                predictions = predict_pokemon(image_to_predict, model, class_names, transforms)
+            
+            if predictions:
+                # Top prediction
+                top_pred = predictions[0]
+                st.success(f"**Top Prediction:** {top_pred['name']}")
+                st.metric("Confidence", f"{top_pred['probability']*100:.2f}%")
+                
+                # Top 5 predictions
+                st.subheader("Top 5 Predictions")
+                for pred in predictions:
+                    st.write(
+                        f"{pred['rank']}. **{pred['name']}** - "
+                        f"{pred['probability']*100:.2f}%"
+                    )
+                
+                # Visualization
+                st.subheader("Confidence Distribution")
+                names = [p['name'] for p in predictions]
+                probs = [p['probability'] for p in predictions]
+                
+                import matplotlib.pyplot as plt
+                fig, ax = plt.subplots(figsize=(10, 6))
+                bars = ax.barh(names, probs, color=['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8'])
+                ax.set_xlabel('Probability')
+                ax.set_title('Top 5 Pokemon Predictions')
+                ax.set_xlim(0, 1)
+                
+                # Add percentage labels
+                for i, (bar, prob) in enumerate(zip(bars, probs)):
+                    ax.text(prob, i, f' {prob*100:.2f}%', va='center')
+                
+                st.pyplot(fig)
     
-    def save_checkpoint(self, filepath):
-        """Save model checkpoint"""
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        torch.save(self.model.state_dict(), filepath)
-        print(f"Model saved to {filepath}")
+    # Info section
+    st.markdown("---")
     
-    def get_training_history(self):
-        """Return training history"""
-        return {
-            'train_losses': self.train_losses,
-            'val_losses': self.val_losses,
-            'train_accs': self.train_accs,
-            'val_accs': self.val_accs
-        }
-
-
-def get_model(model_name, num_classes):
-    """Get model instance"""
-    model_name = model_name.lower()
+    col1, col2, col3 = st.columns(3)
     
-    if model_name == 'alexnet':
-        return AlexNetClassifier(num_classes=num_classes, pretrained=False)
-    elif model_name == 'vggnet':
-        return VGGNetClassifier(num_classes=num_classes, model_name='vgg16', pretrained=False)
-    elif model_name == 'googlenet':
-        return GoogleNetClassifier(num_classes=num_classes, pretrained=False)
-    elif model_name == 'resnet':
-        return ResNetClassifier(num_classes=num_classes, pretrained=False)
-    else:
-        raise ValueError(f"Unknown model: {model_name}")
-
-
-def main(args):
-    """Main training function"""
+    with col1:
+        st.info("**Model:** " + model_choice)
     
-    # Create dataloaders
-    print("Loading data...")
-    device = resolve_device(args.device)
-    print(f"Using device: {device}")
-    dataloaders = create_dataloaders(
-        data_dir='data/raw',
-        batch_size=args.batch_size,
-        augment=True,
-        pin_memory=device.type == 'cuda'
+    with col2:
+        st.info(f"**Classes:** 150 Pokemon")
+    
+    with col3:
+        st.info("**Framework:** PyTorch")
+    
+    # Footer
+    st.markdown("---")
+    st.markdown(
+        """
+        <div style='text-align: center; color: gray;'>
+        <p>🎮 Pokemon Classifier v1.0 | Created for educational purposes</p>
+        </div>
+        """,
+        unsafe_allow_html=True
     )
-    
-    train_loader = dataloaders['train']
-    val_loader = dataloaders['val']
-    num_classes = dataloaders['num_classes']
-    
-    print(f"Number of classes: {num_classes}")
-    print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
-    
-    # Get model
-    print(f"\nInitializing {args.model}...")
-    model = get_model(args.model, num_classes)
-    print(model)
-    
-    # Train
-    trainer = Trainer(
-        model=model,
-        model_name=args.model,
-        num_classes=num_classes,
-        device=device,
-        learning_rate=args.lr,
-        weight_decay=args.weight_decay
-    )
-    
-    trainer.train(train_loader, val_loader, epochs=args.epochs)
-    
-    # Save training history
-    history = trainer.get_training_history()
-    history_path = f'results/{args.model}_history.json'
-    os.makedirs(os.path.dirname(history_path), exist_ok=True)
-    
-    with open(history_path, 'w') as f:
-        json.dump(history, f, indent=4)
-    print(f"Training history saved to {history_path}")
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Train Pokemon classifier')
-    parser.add_argument('--model', type=str, default='resnet',
-                        choices=['alexnet', 'vggnet', 'googlenet', 'resnet'],
-                        help='Model to train')
-    parser.add_argument('--epochs', type=int, default=50, help='Number of epochs')
-    parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
-    parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
-    parser.add_argument('--weight_decay', type=float, default=1e-5, help='Weight decay')
-    parser.add_argument('--device', type=str, default='auto', choices=['auto', 'cpu', 'gpu'], help='Device to use')
-    
-    args = parser.parse_args()
-    main(args)
+    main()
